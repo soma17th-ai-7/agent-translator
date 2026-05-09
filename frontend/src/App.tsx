@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import './index.css'
-import { translate, streamAgent } from './services/api'
+import { translate, streamAgent, type AgentOptions, type AgentHistoryEntry } from './services/api'
 
 type Lang = 'KO' | 'EN'
 type InputMode = 'voice' | 'text'
@@ -12,6 +12,7 @@ interface Message {
   speaker: 'bottom' | 'top'
   original: string
   translation: string
+  agentResponse: string | null  // null = 아직 에이전트 미처리
 }
 
 const LANG_CONFIG: Record<Lang, {
@@ -66,6 +67,8 @@ function App() {
   const [agentQuery, setAgentQuery] = useState('')
   const [agentResult, setAgentResult] = useState('')
   const [agentVisible, setAgentVisible] = useState(false)
+  const [debugMode, setDebugMode] = useState(false)
+  const [agentReasoning, setAgentReasoning] = useState('')
 
   const agentStreamId = useRef(0)
   const agentHasResult = useRef(false)
@@ -83,6 +86,7 @@ function App() {
     setAgentStatus('idle')
     setAgentResult('')
     setAgentQuery('')
+    setAgentReasoning('')
   }
 
   const swapLanguages = () => {
@@ -101,23 +105,25 @@ function App() {
   }
 
   const runAgentStream = (
-    sourceLang: Lang,
-    sourceText: string,
-    targetLang: Lang,
-    translatedText: string,
+    history: AgentHistoryEntry[],
+    options?: AgentOptions,
+    onComplete?: (result: string | null) => void,
   ) => {
     const id = ++agentStreamId.current
     const live = () => agentStreamId.current === id
     agentHasResult.current = false
+    let collected = ''
 
-    void streamAgent(sourceLang, sourceText, targetLang, translatedText, {
+    void streamAgent(history, {
       onAnalyzing: () => { if (live()) setAgentStatus('analyzing') },
+
       onSearching: (query) => {
         if (live()) { setAgentStatus('searching'); setAgentQuery(query); setAgentVisible(true) }
       },
       onResult: (text) => {
         if (live()) {
           agentHasResult.current = true
+          collected += text
           setAgentResult(prev => prev + text)
           setAgentVisible(true)
         }
@@ -126,11 +132,25 @@ function App() {
         if (live()) {
           setAgentStatus('done')
           if (!agentHasResult.current) setAgentVisible(false)
+          onComplete?.(collected || null)
         }
       },
       onError: (msg) => {
-        if (live()) { console.error('Agent error:', msg); setAgentStatus('done'); setAgentVisible(false) }
+        if (live()) {
+          console.error('Agent error:', msg)
+          setAgentStatus('done')
+          setAgentVisible(false)
+          onComplete?.(null)
+        }
       },
+      onReasoning: (text) => { if (live()) setAgentReasoning(text) },
+    }, options).catch(err => {
+      if (live()) {
+        console.error('Agent stream error:', err)
+        setAgentStatus('done')
+        setAgentVisible(false)
+        onComplete?.(null)
+      }
     })
   }
 
@@ -144,12 +164,30 @@ function App() {
     setAgentStatus('idle')
     setAgentResult('')
     setAgentQuery('')
+    setAgentReasoning('')
 
     try {
       const translation = await translate(text, sourceLang, targetLang)
-      setMessages(prev => [...prev, { id: _id++, speaker, original: text, translation }])
+      const msgId = _id++
+      const newMsg: Message = { id: msgId, speaker, original: text, translation, agentResponse: null }
+
+      // 클로저의 messages(현재 렌더 기준)에 newMsg를 추가해 히스토리 구성
+      const agentHistory: AgentHistoryEntry[] = [...messages, newMsg].map(m => ({
+        sourceLang: m.speaker === 'bottom' ? bottomLang : topLang,
+        sourceText: m.original,
+        targetLang: m.speaker === 'bottom' ? topLang : bottomLang,
+        translatedText: m.translation,
+        agentResponse: m.agentResponse,
+      }))
+
+      setMessages(prev => [...prev, newMsg])
       setState('idle')
-      runAgentStream(sourceLang, text, targetLang, translation)
+      runAgentStream(agentHistory, { debug: debugMode, responseLang: bottomLang }, (result) => {
+        // 에이전트 응답을 해당 메시지에 기록 → 다음 에이전트 호출 시 KV 캐시 활용
+        setMessages(prev => prev.map(m =>
+          m.id === msgId ? { ...m, agentResponse: result ?? 'SKIP' } : m
+        ))
+      })
     } catch {
       setState('error')
     }
@@ -226,7 +264,11 @@ function App() {
     </div>
   )
 
+  const showDebugSidebar = debugMode && (agentStatus !== 'idle' || agentReasoning !== '')
+
   return (
+    <div className="app-wrapper">
+    {showDebugSidebar && <div className="debug-spacer" aria-hidden="true" />}
     <div className="app-container">
       {/* Top Pane */}
       <div className="pane top-pane">
@@ -306,6 +348,13 @@ function App() {
       <div className="pane-divider">
         <button className="swap-button" onClick={swapLanguages} title="언어 교환">
           <i className="fa-solid fa-arrows-up-down"></i>
+        </button>
+        <button
+          className={`debug-toggle ${debugMode ? 'active' : ''}`}
+          onClick={() => setDebugMode(d => !d)}
+          title={debugMode ? '디버그 모드 끄기' : '디버그 모드 켜기'}
+        >
+          <i className="fa-solid fa-bug"></i>
         </button>
       </div>
 
@@ -405,6 +454,32 @@ function App() {
           )}
         </div>
       </div>
+    </div>
+
+    {showDebugSidebar && (
+      <div className="debug-sidebar">
+        <div className="debug-header">
+          <i className="fa-solid fa-bug"></i> 에이전트 추론
+        </div>
+        {agentStatus === 'analyzing' && !agentReasoning && (
+          <div className="debug-thinking">
+            <i className="fa-solid fa-circle-notch fa-spin"></i> 추론 중...
+          </div>
+        )}
+        {agentReasoning && (
+          <>
+            <div className="debug-content">{agentReasoning}</div>
+            <div className={`debug-decision ${agentResult ? 'checked' : 'skipped'}`}>
+              {agentStatus !== 'done'
+                ? '— 분석 중 —'
+                : agentResult
+                  ? '✓ 팩트체크 수행'
+                  : '✗ 팩트체크 불필요'}
+            </div>
+          </>
+        )}
+      </div>
+    )}
     </div>
   )
 }
