@@ -1,6 +1,6 @@
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
-const MOCK_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY ?? ''
+const MOCK_KEY = import.meta.env.VITE_UPSTAGE_API_KEY ?? ''
 
 export interface AgentCallbacks {
   onAnalyzing: () => void
@@ -8,19 +8,36 @@ export interface AgentCallbacks {
   onResult: (text: string) => void
   onDone: () => void
   onError: (message: string) => void
+  onReasoning?: (text: string) => void
 }
 
-// ── Mock: Anthropic API를 직접 호출해 백엔드 없이 동작 ──────────────────────
+export interface AgentOptions {
+  debug?: boolean
+  responseLang?: 'KO' | 'EN'
+}
 
-const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
-const MOCK_MODEL = 'claude-haiku-4-5-20251001'
+// 대화 히스토리 한 턴. agentResponse가 null이면 아직 에이전트가 처리하지 않은 항목.
+export interface AgentHistoryEntry {
+  sourceLang: 'KO' | 'EN'
+  sourceText: string
+  targetLang: 'KO' | 'EN'
+  translatedText: string
+  agentResponse: string | null
+}
+
+// ── Mock: Upstage API를 직접 호출해 백엔드 없이 동작 ────────────────────────
+
+const UPSTAGE_URL = 'https://api.upstage.ai/v1/chat/completions'
+const MOCK_MODEL = 'solar-pro2'
 const LANG_NAME: Record<'KO' | 'EN', string> = { KO: 'Korean', EN: 'English' }
 
-const anthropicHeaders = {
+const upstageHeaders = {
   'Content-Type': 'application/json',
-  'x-api-key': MOCK_KEY,
-  'anthropic-version': '2023-06-01',
-  'anthropic-dangerous-allow-browser': 'true',
+  'Authorization': `Bearer ${MOCK_KEY}`,
+}
+
+function stripRoleTokens(text: string): string {
+  return text.replace(/\s*(assistant|user|system)\s*$/gi, '').trim()
 }
 
 async function mockTranslate(
@@ -28,96 +45,127 @@ async function mockTranslate(
   sourceLang: 'KO' | 'EN',
   targetLang: 'KO' | 'EN',
 ): Promise<string> {
-  const res = await fetch(ANTHROPIC_URL, {
+  const res = await fetch(UPSTAGE_URL, {
     method: 'POST',
-    headers: anthropicHeaders,
+    headers: upstageHeaders,
     body: JSON.stringify({
       model: MOCK_MODEL,
       max_tokens: 512,
-      messages: [{
-        role: 'user',
-        content: `Translate the following ${LANG_NAME[sourceLang]} text to ${LANG_NAME[targetLang]}. Output only the translation with no explanation:\n\n${text}`,
-      }],
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a professional translator. Output only the translated text with no labels, role names, or explanations.',
+        },
+        {
+          role: 'user',
+          content: `Translate from ${LANG_NAME[sourceLang]} to ${LANG_NAME[targetLang]}:\n${text}`,
+        },
+      ],
     }),
   })
   if (!res.ok) throw new Error(`Translation failed: ${res.status}`)
-  const data = await res.json() as { content: Array<{ text: string }> }
-  return data.content[0].text.trim()
+  const data = await res.json() as { choices: Array<{ message: { content: string } }> }
+  return stripRoleTokens(data.choices[0].message.content)
+}
+
+// 멀티턴 메시지 구조로 빌드:
+// - 시스템 메시지는 항상 동일 → KV 캐시 히트
+// - 이전 턴(user+assistant)은 변경되지 않음 → KV 캐시 히트
+// - 마지막 user 메시지만 새로 추가
+function buildAgentMessages(
+  history: AgentHistoryEntry[],
+  responseLang: 'KO' | 'EN',
+  debug: boolean,
+): Array<{ role: string; content: string }> {
+  const systemContent = debug
+    ? `You are a fact-checking assistant for a real-time translation app.
+You have the full conversation history for context. Focus on the LATEST exchange, using prior context to understand it.
+Check for verifiable factual claims (prices, distances, regulations, business hours, etc.).
+
+Respond in this EXACT format (no extra text):
+REASONING: [팩트체크 여부를 결정한 근거를 1-2문장으로 한국어로 설명]
+RESULT: [Either "SKIP" if nothing to fact-check, or a concise 1-2 sentence fact-check note in ${LANG_NAME[responseLang]}]`
+    : `You are a fact-checking assistant for a real-time translation app.
+You have the full conversation history for context. Focus on the LATEST exchange, using prior context to understand it.
+Check for verifiable factual claims (prices, distances, regulations, business hours, etc.).
+- If the LATEST exchange contains a claim worth fact-checking: respond with a concise 1-2 sentence note in ${LANG_NAME[responseLang]}.
+- Otherwise: respond with exactly "SKIP" and nothing else.`
+
+  const messages: Array<{ role: string; content: string }> = [
+    { role: 'system', content: systemContent },
+  ]
+
+  for (let i = 0; i < history.length; i++) {
+    const entry = history[i]
+    const isLast = i === history.length - 1
+
+    messages.push({
+      role: 'user',
+      content: `[${LANG_NAME[entry.sourceLang]}] ${entry.sourceText}\n[${LANG_NAME[entry.targetLang]}] ${entry.translatedText}`,
+    })
+
+    // 이전 턴: 에이전트가 이미 응답했으면 assistant 턴으로 추가 (KV 캐시 유지)
+    if (!isLast && entry.agentResponse !== null) {
+      messages.push({ role: 'assistant', content: entry.agentResponse || 'SKIP' })
+    }
+  }
+
+  return messages
+}
+
+function parseDebugResponse(raw: string): { reasoning: string; result: string } {
+  const reasoningMatch = raw.match(/REASONING:\s*([\s\S]*?)(?=\nRESULT:)/i)
+  const resultMatch = raw.match(/RESULT:\s*([\s\S]*)$/i)
+  return {
+    reasoning: stripRoleTokens(reasoningMatch?.[1]?.trim() ?? ''),
+    result: stripRoleTokens(resultMatch?.[1]?.trim() ?? raw),
+  }
 }
 
 async function mockStreamAgent(
-  sourceLang: 'KO' | 'EN',
-  sourceText: string,
-  targetLang: 'KO' | 'EN',
-  translatedText: string,
+  history: AgentHistoryEntry[],
   callbacks: AgentCallbacks,
+  options?: AgentOptions,
 ): Promise<void> {
   callbacks.onAnalyzing()
+  const debug = options?.debug ?? false
+  const latest = history[history.length - 1]
+  const responseLang = options?.responseLang ?? latest.sourceLang
 
-  const res = await fetch(ANTHROPIC_URL, {
+  const res = await fetch(UPSTAGE_URL, {
     method: 'POST',
-    headers: anthropicHeaders,
+    headers: upstageHeaders,
     body: JSON.stringify({
       model: MOCK_MODEL,
-      max_tokens: 256,
-      stream: true,
-      system: `You are a fact-checking assistant for a real-time translation app.
-Analyze the conversation for verifiable factual claims (prices, distances, regulations, business hours, etc.).
-- If there IS a claim worth fact-checking: respond with a concise 1-2 sentence fact-check note in ${LANG_NAME[sourceLang]}.
-- If there is NOTHING to fact-check (greetings, opinions, casual statements): respond with exactly "SKIP" and nothing else.`,
-      messages: [{
-        role: 'user',
-        content: `[${LANG_NAME[sourceLang]}] ${sourceText}\n[${LANG_NAME[targetLang]}] ${translatedText}`,
-      }],
+      max_tokens: debug ? 512 : 256,
+      messages: buildAgentMessages(history, responseLang, debug),
     }),
   })
 
-  if (!res.ok || !res.body) {
+  if (!res.ok) {
     callbacks.onError(`Agent failed: ${res.status}`)
     return
   }
 
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  let accumulated = ''
-  let streaming = false
+  const data = await res.json() as { choices: Array<{ message: { content: string } }> }
+  const raw = stripRoleTokens(data.choices[0].message.content)
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const blocks = buffer.split('\n\n')
-    buffer = blocks.pop() ?? ''
-
-    for (const block of blocks) {
-      for (const line of block.split('\n')) {
-        if (!line.startsWith('data: ')) continue
-        let event: Record<string, unknown>
-        try { event = JSON.parse(line.slice(6)) as Record<string, unknown> } catch { continue }
-
-        if (event.type !== 'content_block_delta') continue
-        const delta = event.delta as Record<string, unknown>
-        if (delta?.type !== 'text_delta') continue
-        const chunk = (delta.text as string) ?? ''
-        accumulated += chunk
-
-        if (!streaming) {
-          // 충분한 텍스트가 모이면 SKIP 여부 판단
-          if (accumulated.trimStart().length < 4) continue
-          if (accumulated.trimStart().toUpperCase().startsWith('SKIP')) {
-            callbacks.onDone()
-            return
-          }
-          streaming = true
-          callbacks.onSearching('fact-checking')
-          callbacks.onResult(accumulated)
-        } else {
-          callbacks.onResult(chunk)
-        }
-      }
+  if (debug) {
+    const { reasoning, result } = parseDebugResponse(raw)
+    if (reasoning) callbacks.onReasoning?.(reasoning)
+    if (!result || result.toUpperCase().startsWith('SKIP')) {
+      callbacks.onDone()
+      return
     }
+    callbacks.onSearching('fact-checking')
+    callbacks.onResult(result)
+  } else {
+    if (!raw || raw.toUpperCase().startsWith('SKIP')) {
+      callbacks.onDone()
+      return
+    }
+    callbacks.onSearching('fact-checking')
+    callbacks.onResult(raw)
   }
 
   callbacks.onDone()
@@ -148,22 +196,22 @@ export async function translate(
 }
 
 export async function streamAgent(
-  sourceLang: 'KO' | 'EN',
-  sourceText: string,
-  targetLang: 'KO' | 'EN',
-  translatedText: string,
+  history: AgentHistoryEntry[],
   callbacks: AgentCallbacks,
+  options?: AgentOptions,
 ): Promise<void> {
-  if (USE_MOCK) return mockStreamAgent(sourceLang, sourceText, targetLang, translatedText, callbacks)
+  if (USE_MOCK) return mockStreamAgent(history, callbacks, options)
 
+  // 실제 백엔드: 최신 턴만 전달 (추후 히스토리 지원 시 확장)
+  const latest = history[history.length - 1]
   const res = await fetch(`${BASE_URL}/api/agent/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      source_lang: sourceLang,
-      source_text: sourceText,
-      target_lang: targetLang,
-      translated_text: translatedText,
+      source_lang: latest.sourceLang,
+      source_text: latest.sourceText,
+      target_lang: latest.targetLang,
+      translated_text: latest.translatedText,
     }),
   })
 
