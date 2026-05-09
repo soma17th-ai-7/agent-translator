@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import './index.css'
 import { translate, streamAgent, type AgentOptions, type AgentHistoryEntry } from './services/api'
 
@@ -69,9 +69,39 @@ function App() {
   const [agentVisible, setAgentVisible] = useState(false)
   const [debugMode, setDebugMode] = useState(false)
   const [agentReasoning, setAgentReasoning] = useState('')
+  const [userLocation, setUserLocation] = useState<string | null>(null)
+  const [locationStatus, setLocationStatus] = useState<'idle' | 'loading' | 'ready' | 'denied'>('idle')
 
   const agentStreamId = useRef(0)
   const agentHasResult = useRef(false)
+
+  useEffect(() => {
+    if (!navigator.geolocation) return
+    setLocationStatus('loading')
+    navigator.geolocation.getCurrentPosition(
+      async ({ coords: { latitude, longitude } }) => {
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&zoom=14`,
+            { headers: { 'User-Agent': 'TranslationApp/1.0' } },
+          )
+          const data = await res.json() as { address: Record<string, string> }
+          const addr = data.address
+          const parts = [
+            addr.suburb ?? addr.neighbourhood ?? addr.quarter,
+            addr.city ?? addr.town ?? addr.municipality,
+            addr.country,
+          ].filter(Boolean)
+          setUserLocation(parts.join(', '))
+        } catch {
+          setUserLocation(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)
+        }
+        setLocationStatus('ready')
+      },
+      () => setLocationStatus('denied'),
+      { timeout: 10000 },
+    )
+  }, [])
 
   const lastBottom = messages.filter(m => m.speaker === 'bottom').at(-1)
   const lastTop = messages.filter(m => m.speaker === 'top').at(-1)
@@ -182,7 +212,7 @@ function App() {
 
       setMessages(prev => [...prev, newMsg])
       setState('idle')
-      runAgentStream(agentHistory, { debug: debugMode, responseLang: bottomLang }, (result) => {
+      runAgentStream(agentHistory, { debug: debugMode, responseLang: bottomLang, userLocation: userLocation ?? undefined }, (result) => {
         // 에이전트 응답을 해당 메시지에 기록 → 다음 에이전트 호출 시 KV 캐시 활용
         setMessages(prev => prev.map(m =>
           m.id === msgId ? { ...m, agentResponse: result ?? 'SKIP' } : m
@@ -346,6 +376,17 @@ function App() {
 
       {/* Language swap divider */}
       <div className="pane-divider">
+        {locationStatus === 'ready' && userLocation && (
+          <div className="location-badge" title={userLocation}>
+            <i className="fa-solid fa-location-dot"></i>
+            <span className="location-text">{userLocation}</span>
+          </div>
+        )}
+        {locationStatus === 'loading' && (
+          <div className="location-badge location-loading">
+            <i className="fa-solid fa-circle-notch fa-spin"></i>
+          </div>
+        )}
         <button className="swap-button" onClick={swapLanguages} title="언어 교환">
           <i className="fa-solid fa-arrows-up-down"></i>
         </button>
