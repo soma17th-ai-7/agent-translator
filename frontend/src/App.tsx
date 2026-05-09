@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import './index.css'
 import { translate, streamAgent } from './services/api'
 
+type Lang = 'KO' | 'EN'
 type InputMode = 'voice' | 'text'
 type SpeakerState = 'idle' | 'translating' | 'error'
 type AgentStatus = 'idle' | 'analyzing' | 'searching' | 'done'
@@ -13,9 +14,43 @@ interface Message {
   translation: string
 }
 
+const LANG_CONFIG: Record<Lang, {
+  label: string
+  placeholder: string
+  micSample: string
+  translating: string
+  error: string
+  retry: string
+}> = {
+  KO: {
+    label: '한국어 (Korean)',
+    placeholder: '한국어로 입력하세요...',
+    micSample: '공항까지 가는데 택시비가 얼마예요?',
+    translating: '번역 중...',
+    error: '번역에 실패했습니다.',
+    retry: '다시 시도',
+  },
+  EN: {
+    label: 'English (US)',
+    placeholder: 'Type in English...',
+    micSample: "It's 50 dollars.",
+    translating: 'Translating...',
+    error: 'Translation failed.',
+    retry: 'Retry',
+  },
+}
+
+const LANG_OPTIONS: { code: Lang; label: string }[] = [
+  { code: 'KO', label: '한국어' },
+  { code: 'EN', label: 'English' },
+]
+
 let _id = 0
 
 function App() {
+  const [bottomLang, setBottomLang] = useState<Lang>('KO')
+  const topLang: Lang = bottomLang === 'KO' ? 'EN' : 'KO'
+
   const [messages, setMessages] = useState<Message[]>([])
   const [bottomState, setBottomState] = useState<SpeakerState>('idle')
   const [topState, setTopState] = useState<SpeakerState>('idle')
@@ -25,6 +60,8 @@ function App() {
   const [topMode, setTopMode] = useState<InputMode>('voice')
   const [bottomDraft, setBottomDraft] = useState('')
   const [topDraft, setTopDraft] = useState('')
+  const [showBottomPicker, setShowBottomPicker] = useState(false)
+  const [showTopPicker, setShowTopPicker] = useState(false)
   const [agentStatus, setAgentStatus] = useState<AgentStatus>('idle')
   const [agentQuery, setAgentQuery] = useState('')
   const [agentResult, setAgentResult] = useState('')
@@ -33,15 +70,40 @@ function App() {
   const agentStreamId = useRef(0)
   const agentHasResult = useRef(false)
 
-  // 가장 최근 메시지를 기준으로 각 화자의 마지막 발화를 가져옴
   const lastBottom = messages.filter(m => m.speaker === 'bottom').at(-1)
   const lastTop = messages.filter(m => m.speaker === 'top').at(-1)
   const latestSpeaker = messages.at(-1)?.speaker
 
+  const clearConversation = () => {
+    agentStreamId.current++
+    setMessages([])
+    setBottomState('idle')
+    setTopState('idle')
+    setAgentVisible(false)
+    setAgentStatus('idle')
+    setAgentResult('')
+    setAgentQuery('')
+  }
+
+  const swapLanguages = () => {
+    setBottomLang(prev => prev === 'KO' ? 'EN' : 'KO')
+    clearConversation()
+  }
+
+  const selectBottomLang = (lang: Lang) => {
+    if (lang !== bottomLang) swapLanguages()
+    setShowBottomPicker(false)
+  }
+
+  const selectTopLang = (lang: Lang) => {
+    if (lang !== topLang) swapLanguages()
+    setShowTopPicker(false)
+  }
+
   const runAgentStream = (
-    sourceLang: 'KO' | 'EN',
+    sourceLang: Lang,
     sourceText: string,
-    targetLang: 'KO' | 'EN',
+    targetLang: Lang,
     translatedText: string,
   ) => {
     const id = ++agentStreamId.current
@@ -74,8 +136,8 @@ function App() {
 
   const sendMessage = async (speaker: 'bottom' | 'top', text: string) => {
     const setState = speaker === 'bottom' ? setBottomState : setTopState
-    const sourceLang: 'KO' | 'EN' = speaker === 'bottom' ? 'KO' : 'EN'
-    const targetLang: 'KO' | 'EN' = speaker === 'bottom' ? 'EN' : 'KO'
+    const sourceLang = speaker === 'bottom' ? bottomLang : topLang
+    const targetLang = speaker === 'bottom' ? topLang : bottomLang
 
     setState('translating')
     setAgentVisible(false)
@@ -98,7 +160,7 @@ function App() {
     setIsBottomListening(true)
     setTimeout(() => {
       setIsBottomListening(false)
-      void sendMessage('bottom', '공항까지 가는데 택시비가 얼마예요?')
+      void sendMessage('bottom', LANG_CONFIG[bottomLang].micSample)
     }, 1500)
   }
 
@@ -114,7 +176,7 @@ function App() {
     setIsTopListening(true)
     setTimeout(() => {
       setIsTopListening(false)
-      void sendMessage('top', "It's 50 dollars.")
+      void sendMessage('top', LANG_CONFIG[topLang].micSample)
     }, 1500)
   }
 
@@ -126,21 +188,59 @@ function App() {
   }
 
   const showAgentOverlay = agentVisible && (
-    agentStatus === 'searching' ||
-    agentResult !== ''
+    agentStatus === 'searching' || agentResult !== ''
+  )
+
+  const LangSelector = ({
+    lang,
+    show,
+    onToggle,
+    onSelect,
+  }: {
+    lang: Lang
+    show: boolean
+    onToggle: () => void
+    onSelect: (l: Lang) => void
+  }) => (
+    <div className="lang-selector-wrap">
+      <button className="lang-selector" onClick={onToggle}>
+        <span>{LANG_CONFIG[lang].label}</span>
+        <i className="fa-solid fa-chevron-down"></i>
+      </button>
+      {show && (
+        <>
+          <div className="picker-overlay" onClick={() => onSelect(lang)} />
+          <div className="lang-dropdown">
+            {LANG_OPTIONS.map(opt => (
+              <button
+                key={opt.code}
+                className={`lang-option ${lang === opt.code ? 'active' : ''}`}
+                onClick={() => onSelect(opt.code)}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
   )
 
   return (
     <div className="app-container">
-      {/* Top Pane (English) */}
+      {/* Top Pane */}
       <div className="pane top-pane">
         <div className="lang-label">
-          <span>English (US)</span>
+          <LangSelector
+            lang={topLang}
+            show={showTopPicker}
+            onToggle={() => setShowTopPicker(p => !p)}
+            onSelect={selectTopLang}
+          />
           <i className="fa-solid fa-expand"></i>
         </div>
 
         <div className="text-content">
-          {/* 영어 화자가 발화했으면 본인 발화를 표시, 아직 없으면 한국어→영어 번역을 표시 */}
           {lastTop ? (
             <div className="main-text">{lastTop.original}</div>
           ) : lastBottom ? (
@@ -148,19 +248,20 @@ function App() {
           ) : (
             <div className="main-text" style={{ opacity: 0.3 }}>...</div>
           )}
-          {/* 영어→한국어 번역 확인 텍스트 */}
           {lastTop && (
             <div className="sub-text">{lastTop.translation}</div>
           )}
           {topState === 'translating' && (
             <div className="translating-indicator">
-              <i className="fa-solid fa-circle-notch fa-spin"></i> Translating...
+              <i className="fa-solid fa-circle-notch fa-spin"></i> {LANG_CONFIG[topLang].translating}
             </div>
           )}
           {topState === 'error' && (
             <div className="translation-error">
-              <span><i className="fa-solid fa-triangle-exclamation"></i> Translation failed.</span>
-              <button className="retry-button" onClick={() => setTopState('idle')}>Retry</button>
+              <span><i className="fa-solid fa-triangle-exclamation"></i> {LANG_CONFIG[topLang].error}</span>
+              <button className="retry-button" onClick={() => setTopState('idle')}>
+                {LANG_CONFIG[topLang].retry}
+              </button>
             </div>
           )}
         </div>
@@ -169,7 +270,6 @@ function App() {
           <button
             className="mode-toggle"
             onClick={() => setTopMode(m => m === 'voice' ? 'text' : 'voice')}
-            title={topMode === 'voice' ? 'Switch to text input' : 'Switch to voice input'}
           >
             <i className={`fa-solid fa-${topMode === 'voice' ? 'keyboard' : 'microphone'}`}></i>
           </button>
@@ -185,7 +285,7 @@ function App() {
               <input
                 className="text-input top-input"
                 type="text"
-                placeholder="Type in English..."
+                placeholder={LANG_CONFIG[topLang].placeholder}
                 value={topDraft}
                 onChange={e => setTopDraft(e.target.value)}
                 disabled={topState === 'translating'}
@@ -202,10 +302,22 @@ function App() {
         </div>
       </div>
 
-      {/* Bottom Pane (Korean) */}
+      {/* Language swap divider */}
+      <div className="pane-divider">
+        <button className="swap-button" onClick={swapLanguages} title="언어 교환">
+          <i className="fa-solid fa-arrows-up-down"></i>
+        </button>
+      </div>
+
+      {/* Bottom Pane */}
       <div className="pane bottom-pane">
         <div className="lang-label">
-          <span>한국어 (Korean)</span>
+          <LangSelector
+            lang={bottomLang}
+            show={showBottomPicker}
+            onToggle={() => setShowBottomPicker(p => !p)}
+            onSelect={selectBottomLang}
+          />
           <i className="fa-solid fa-expand"></i>
         </div>
 
@@ -215,23 +327,23 @@ function App() {
           ) : (
             <div className="main-text" style={{ opacity: 0.3 }}>...</div>
           )}
-          {/* 가장 최근 발화가 영어 화자인 경우: 영어→한국어 번역(답변)을 표시 */}
           {lastTop && latestSpeaker === 'top' && (
             <div className="main-text response-text">{lastTop.translation}</div>
           )}
-          {/* 한국어 화자가 방금 발화한 경우: 한국어→영어 번역 확인 텍스트 */}
           {lastBottom && latestSpeaker === 'bottom' && (
             <div className="sub-text">{lastBottom.translation}</div>
           )}
           {bottomState === 'translating' && (
             <div className="translating-indicator">
-              <i className="fa-solid fa-circle-notch fa-spin"></i> 번역 중...
+              <i className="fa-solid fa-circle-notch fa-spin"></i> {LANG_CONFIG[bottomLang].translating}
             </div>
           )}
           {bottomState === 'error' && (
             <div className="translation-error">
-              <span><i className="fa-solid fa-triangle-exclamation"></i> 번역에 실패했습니다.</span>
-              <button className="retry-button" onClick={() => setBottomState('idle')}>다시 시도</button>
+              <span><i className="fa-solid fa-triangle-exclamation"></i> {LANG_CONFIG[bottomLang].error}</span>
+              <button className="retry-button" onClick={() => setBottomState('idle')}>
+                {LANG_CONFIG[bottomLang].retry}
+              </button>
             </div>
           )}
 
@@ -262,7 +374,6 @@ function App() {
           <button
             className="mode-toggle"
             onClick={() => setBottomMode(m => m === 'voice' ? 'text' : 'voice')}
-            title={bottomMode === 'voice' ? '텍스트 입력으로 전환' : '음성 입력으로 전환'}
           >
             <i className={`fa-solid fa-${bottomMode === 'voice' ? 'keyboard' : 'microphone'}`}></i>
           </button>
@@ -278,7 +389,7 @@ function App() {
               <input
                 className="text-input bottom-input"
                 type="text"
-                placeholder="한국어로 입력하세요..."
+                placeholder={LANG_CONFIG[bottomLang].placeholder}
                 value={bottomDraft}
                 onChange={e => setBottomDraft(e.target.value)}
                 disabled={bottomState === 'translating'}
