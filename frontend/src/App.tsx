@@ -1,83 +1,134 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import './index.css'
+import { translate, streamAgent } from './services/api'
 
 type InputMode = 'voice' | 'text'
+type SpeakerState = 'idle' | 'translating' | 'error'
+type AgentStatus = 'idle' | 'analyzing' | 'searching' | 'done'
+
+interface Message {
+  id: number
+  speaker: 'bottom' | 'top'
+  original: string
+  translation: string
+}
+
+let _id = 0
 
 function App() {
-  const [step, setStep] = useState(0)
+  const [messages, setMessages] = useState<Message[]>([])
+  const [bottomState, setBottomState] = useState<SpeakerState>('idle')
+  const [topState, setTopState] = useState<SpeakerState>('idle')
   const [isBottomListening, setIsBottomListening] = useState(false)
   const [isTopListening, setIsTopListening] = useState(false)
-  const [showAgent, setShowAgent] = useState(false)
   const [bottomMode, setBottomMode] = useState<InputMode>('voice')
   const [topMode, setTopMode] = useState<InputMode>('voice')
   const [bottomDraft, setBottomDraft] = useState('')
   const [topDraft, setTopDraft] = useState('')
-  const [bottomMessage, setBottomMessage] = useState('')
-  const [topMessage, setTopMessage] = useState('')
+  const [agentStatus, setAgentStatus] = useState<AgentStatus>('idle')
+  const [agentQuery, setAgentQuery] = useState('')
+  const [agentResult, setAgentResult] = useState('')
+  const [agentVisible, setAgentVisible] = useState(false)
 
-  // Step 0: Initial
-  // Step 1: Bottom User Spoke/Typed
-  // Step 2: Translation appears on top pane
-  // Step 3: Top User Spoke/Typed
-  // Step 4: Back-translation appears on bottom pane
-  // Step 5: Agent Fact Check
+  const agentStreamId = useRef(0)
+  const agentHasResult = useRef(false)
 
-  const BOTTOM_TRANSLATION = 'How much is the taxi fare to the airport?'
-  const TOP_TRANSLATION = '50달러입니다.'
+  // 가장 최근 메시지를 기준으로 각 화자의 마지막 발화를 가져옴
+  const lastBottom = messages.filter(m => m.speaker === 'bottom').at(-1)
+  const lastTop = messages.filter(m => m.speaker === 'top').at(-1)
+  const latestSpeaker = messages.at(-1)?.speaker
 
-  const advanceFromBottom = (message: string) => {
-    setBottomMessage(message)
-    setStep(1)
-    setTimeout(() => setStep(2), 1000)
+  const runAgentStream = (
+    sourceLang: 'KO' | 'EN',
+    sourceText: string,
+    targetLang: 'KO' | 'EN',
+    translatedText: string,
+  ) => {
+    const id = ++agentStreamId.current
+    const live = () => agentStreamId.current === id
+    agentHasResult.current = false
+
+    void streamAgent(sourceLang, sourceText, targetLang, translatedText, {
+      onAnalyzing: () => { if (live()) setAgentStatus('analyzing') },
+      onSearching: (query) => {
+        if (live()) { setAgentStatus('searching'); setAgentQuery(query); setAgentVisible(true) }
+      },
+      onResult: (text) => {
+        if (live()) {
+          agentHasResult.current = true
+          setAgentResult(prev => prev + text)
+          setAgentVisible(true)
+        }
+      },
+      onDone: () => {
+        if (live()) {
+          setAgentStatus('done')
+          if (!agentHasResult.current) setAgentVisible(false)
+        }
+      },
+      onError: (msg) => {
+        if (live()) { console.error('Agent error:', msg); setAgentStatus('done'); setAgentVisible(false) }
+      },
+    })
   }
 
-  const advanceFromTop = (message: string) => {
-    setTopMessage(message)
-    setStep(3)
-    setTimeout(() => {
-      setStep(4)
-      setTimeout(() => setShowAgent(true), 1500)
-    }, 1000)
+  const sendMessage = async (speaker: 'bottom' | 'top', text: string) => {
+    const setState = speaker === 'bottom' ? setBottomState : setTopState
+    const sourceLang: 'KO' | 'EN' = speaker === 'bottom' ? 'KO' : 'EN'
+    const targetLang: 'KO' | 'EN' = speaker === 'bottom' ? 'EN' : 'KO'
+
+    setState('translating')
+    setAgentVisible(false)
+    setAgentStatus('idle')
+    setAgentResult('')
+    setAgentQuery('')
+
+    try {
+      const translation = await translate(text, sourceLang, targetLang)
+      setMessages(prev => [...prev, { id: _id++, speaker, original: text, translation }])
+      setState('idle')
+      runAgentStream(sourceLang, text, targetLang, translation)
+    } catch {
+      setState('error')
+    }
   }
 
   const handleBottomMicClick = () => {
-    if (step !== 0) return
+    if (bottomState === 'translating' || isBottomListening) return
     setIsBottomListening(true)
     setTimeout(() => {
       setIsBottomListening(false)
-      advanceFromBottom('공항까지 가는데 택시비가 얼마예요?')
+      void sendMessage('bottom', '공항까지 가는데 택시비가 얼마예요?')
     }, 1500)
   }
 
   const handleBottomTextSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!bottomDraft.trim() || step !== 0) return
-    advanceFromBottom(bottomDraft.trim())
+    if (!bottomDraft.trim() || bottomState === 'translating') return
+    void sendMessage('bottom', bottomDraft.trim())
     setBottomDraft('')
   }
 
   const handleTopMicClick = () => {
-    if (step !== 2) return
+    if (topState === 'translating' || isTopListening) return
     setIsTopListening(true)
     setTimeout(() => {
       setIsTopListening(false)
-      advanceFromTop("It's 50 dollars.")
+      void sendMessage('top', "It's 50 dollars.")
     }, 1500)
   }
 
   const handleTopTextSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!topDraft.trim() || step !== 2) return
-    advanceFromTop(topDraft.trim())
+    if (!topDraft.trim() || topState === 'translating') return
+    void sendMessage('top', topDraft.trim())
     setTopDraft('')
   }
 
-  const resetConversation = () => {
-    setStep(0)
-    setShowAgent(false)
-    setBottomMessage('')
-    setTopMessage('')
-  }
+  const showAgentOverlay = agentVisible && (
+    agentStatus === 'searching' ||
+    agentResult !== ''
+  )
 
   return (
     <div className="app-container">
@@ -89,16 +140,29 @@ function App() {
         </div>
 
         <div className="text-content">
-          {step >= 3 && (
-            <div className="main-text">{topMessage}</div>
+          {/* 영어 화자가 발화했으면 본인 발화를 표시, 아직 없으면 한국어→영어 번역을 표시 */}
+          {lastTop ? (
+            <div className="main-text">{lastTop.original}</div>
+          ) : lastBottom ? (
+            <div className="main-text">{lastBottom.translation}</div>
+          ) : (
+            <div className="main-text" style={{ opacity: 0.3 }}>...</div>
           )}
-          {step >= 2 && step < 3 && (
-            <div className="main-text">{BOTTOM_TRANSLATION}</div>
+          {/* 영어→한국어 번역 확인 텍스트 */}
+          {lastTop && (
+            <div className="sub-text">{lastTop.translation}</div>
           )}
-          {step >= 4 && (
-            <div className="sub-text">{TOP_TRANSLATION}</div>
+          {topState === 'translating' && (
+            <div className="translating-indicator">
+              <i className="fa-solid fa-circle-notch fa-spin"></i> Translating...
+            </div>
           )}
-          {step < 2 && <div className="main-text" style={{opacity: 0.3}}>...</div>}
+          {topState === 'error' && (
+            <div className="translation-error">
+              <span><i className="fa-solid fa-triangle-exclamation"></i> Translation failed.</span>
+              <button className="retry-button" onClick={() => setTopState('idle')}>Retry</button>
+            </div>
+          )}
         </div>
 
         <div className="input-controls">
@@ -124,12 +188,12 @@ function App() {
                 placeholder="Type in English..."
                 value={topDraft}
                 onChange={e => setTopDraft(e.target.value)}
-                disabled={step !== 2}
+                disabled={topState === 'translating'}
               />
               <button
                 className="send-button top-send"
                 type="submit"
-                disabled={step !== 2 || !topDraft.trim()}
+                disabled={topState === 'translating' || !topDraft.trim()}
               >
                 <i className="fa-solid fa-paper-plane"></i>
               </button>
@@ -146,25 +210,50 @@ function App() {
         </div>
 
         <div className="text-content">
-          {step >= 1 && (
-            <div className="main-text">{bottomMessage}</div>
+          {lastBottom ? (
+            <div className="main-text">{lastBottom.original}</div>
+          ) : (
+            <div className="main-text" style={{ opacity: 0.3 }}>...</div>
           )}
-          {step >= 2 && step < 3 && (
-            <div className="sub-text">{BOTTOM_TRANSLATION}</div>
+          {/* 가장 최근 발화가 영어 화자인 경우: 영어→한국어 번역(답변)을 표시 */}
+          {lastTop && latestSpeaker === 'top' && (
+            <div className="main-text response-text">{lastTop.translation}</div>
           )}
-          {step >= 4 && (
-            <div className="main-text">{TOP_TRANSLATION}</div>
+          {/* 한국어 화자가 방금 발화한 경우: 한국어→영어 번역 확인 텍스트 */}
+          {lastBottom && latestSpeaker === 'bottom' && (
+            <div className="sub-text">{lastBottom.translation}</div>
           )}
-          {step === 0 && <div className="main-text" style={{opacity: 0.3}}>...</div>}
+          {bottomState === 'translating' && (
+            <div className="translating-indicator">
+              <i className="fa-solid fa-circle-notch fa-spin"></i> 번역 중...
+            </div>
+          )}
+          {bottomState === 'error' && (
+            <div className="translation-error">
+              <span><i className="fa-solid fa-triangle-exclamation"></i> 번역에 실패했습니다.</span>
+              <button className="retry-button" onClick={() => setBottomState('idle')}>다시 시도</button>
+            </div>
+          )}
 
-          {showAgent && (
-            <div className="subtle-agent-note" onClick={resetConversation} style={{ cursor: 'pointer' }}>
-              <i className="fa-solid fa-circle-info"></i>
-              <div>
-                <strong>현지 시세 정보</strong><br/>
-                공항-시내 간 통상 요금은 $20~$25 입니다.<br/>
-                <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>(클릭하여 다시 시작)</span>
+          {showAgentOverlay && (
+            <div className="subtle-agent-note">
+              <i className={`fa-solid ${agentResult ? 'fa-circle-info' : 'fa-circle-notch fa-spin'}`}></i>
+              <div className="agent-content">
+                {!agentResult && agentStatus === 'searching' && (
+                  <span className="agent-status-text">검색 중: {agentQuery}</span>
+                )}
+                {agentResult && (
+                  <>
+                    <strong>팩트체크</strong><br />
+                    {agentResult}
+                  </>
+                )}
               </div>
+              {agentStatus === 'done' && (
+                <button className="agent-dismiss" onClick={() => setAgentVisible(false)}>
+                  <i className="fa-solid fa-xmark"></i>
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -192,12 +281,12 @@ function App() {
                 placeholder="한국어로 입력하세요..."
                 value={bottomDraft}
                 onChange={e => setBottomDraft(e.target.value)}
-                disabled={step !== 0}
+                disabled={bottomState === 'translating'}
               />
               <button
                 className="send-button bottom-send"
                 type="submit"
-                disabled={step !== 0 || !bottomDraft.trim()}
+                disabled={bottomState === 'translating' || !bottomDraft.trim()}
               >
                 <i className="fa-solid fa-paper-plane"></i>
               </button>
