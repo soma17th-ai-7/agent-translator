@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Translate - Dual Mode</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --bg-color: #0f172a; /* Slate 900 */
+      --top-pane: #1e293b; /* Slate 800 */
+      --bottom-pane: #0f172a; /* Slate 900 */
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --accent-top: #10b981; /* Emerald 500 for Top */
+      --accent-bottom: #3b82f6; /* Blue 500 for Bottom */
+      --agent-bg: rgba(30, 41, 59, 0.95);
+      --agent-border: #f59e0b; /* Amber 500 */
+      --agent-text: #fbbf24;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Inter', -apple-system, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      color: var(--text-primary);
+    }
+
+    /* Mobile App Container */
+    .app-container {
+      width: 100%;
+      max-width: 414px;
+      height: 896px; /* iPhone size approx */
+      background-color: var(--bottom-pane);
+      border-radius: 40px;
+      overflow: hidden;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      border: 8px solid #000;
+    }
+
+    /* Panes */
+    .pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 30px 24px;
+      position: relative;
+    }
+
+    .top-pane {
+      background-color: var(--top-pane);
+      border-bottom: 2px solid rgba(255,255,255,0.05);
+      /* Rotate 180 degrees for the person opposite */
+      transform: rotate(180deg);
+    }
+
+    .bottom-pane {
+      background-color: var(--bottom-pane);
+    }
+
+    /* Language Label */
+    .lang-label {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    /* Text Content */
+    .text-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 15px;
+    }
+
+    .main-text {
+      font-size: 1.75rem;
+      font-weight: 700;
+      line-height: 1.3;
+      color: var(--text-primary);
+    }
+
+    .sub-text {
+      font-size: 1.1rem;
+      color: var(--text-secondary);
+      font-weight: 400;
+    }
+
+    /* Mic Controls */
+    .mic-controls {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-top: 20px;
+    }
+
+    .mic-button {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: white;
+      font-size: 1.8rem;
+      cursor: pointer;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      position: relative;
+    }
+
+    .mic-button:active {
+      transform: scale(0.95);
+    }
+
+    .top-mic {
+      background-color: var(--accent-top);
+      box-shadow: 0 8px 20px rgba(16, 185, 129, 0.4);
+    }
+
+    .bottom-mic {
+      background-color: var(--accent-bottom);
+      box-shadow: 0 8px 20px rgba(59, 130, 246, 0.4);
+    }
+
+    /* Agent Intervention Modal */
+    .agent-overlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.4);
+      backdrop-filter: blur(4px);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+      animation: fadeIn 0.4s ease forwards;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .agent-modal {
+      background: var(--agent-bg);
+      width: 85%;
+      border-radius: 24px;
+      border: 2px solid var(--agent-border);
+      padding: 24px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5), 0 0 40px rgba(245, 158, 11, 0.2);
+      transform: scale(0.9);
+      animation: popModal 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Warning stripe background */
+    .agent-modal::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 6px;
+      background: repeating-linear-gradient(
+        45deg,
+        var(--agent-border),
+        var(--agent-border) 10px,
+        #000 10px,
+        #000 20px
+      );
+    }
+
+    @keyframes popModal {
+      to { transform: scale(1); }
+    }
+
+    .agent-icon {
+      font-size: 2.5rem;
+      color: var(--agent-text);
+      margin-bottom: 16px;
+      text-shadow: 0 0 20px rgba(245, 158, 11, 0.5);
+    }
+
+    .agent-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 12px;
+    }
+
+    .agent-message {
+      font-size: 1rem;
+      line-height: 1.5;
+      color: #e2e8f0;
+      margin-bottom: 20px;
+    }
+
+    .agent-message strong {
+      color: var(--agent-text);
+      font-size: 1.1rem;
+    }
+
+    .close-agent-btn {
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: white;
+      padding: 12px 24px;
+      border-radius: 12px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.3s;
+      width: 100%;
+    }
+
+    .close-agent-btn:hover {
+      background: rgba(255,255,255,0.2);
+    }
+
+    /* Status indicator for agent listening */
+    .agent-status {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 48px;
+      height: 48px;
+      background: var(--agent-bg);
+      border-radius: 50%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      border: 2px solid var(--text-secondary);
+      z-index: 10;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+    }
+
+    .agent-status i {
+      color: var(--text-secondary);
+      font-size: 1.2rem;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app-container">
+    
+    <!-- Top Pane (Rotated for the other person) -->
+    <div class="pane top-pane">
+      <div class="lang-label">
+        <span>English (US)</span>
+        <i class="fa-solid fa-expand"></i>
+      </div>
+      
+      <div class="text-content">
+        <div class="main-text">It's 50 dollars.</div>
+        <div class="sub-text">50달러입니다.</div>
+      </div>
+
+      <div class="mic-controls">
+        <div class="mic-button top-mic">
+          <i class="fa-solid fa-microphone"></i>
+        </div>
+      </div>
+    </div>
+
+    <!-- Center Agent Status Indicator (Optional decorative element) -->
+    <div class="agent-status" style="display: none;">
+      <i class="fa-solid fa-robot"></i>
+    </div>
+
+    <!-- Bottom Pane (For the user) -->
+    <div class="pane bottom-pane">
+      <div class="lang-label">
+        <span>한국어 (Korean)</span>
+        <i class="fa-solid fa-expand"></i>
+      </div>
+      
+      <div class="text-content">
+        <div class="main-text">공항까지 가는데 택시비가 얼마예요?</div>
+        <div class="sub-text">How much is the taxi fare to the airport?</div>
+      </div>
+
+      <div class="mic-controls">
+        <div class="mic-button bottom-mic">
+          <i class="fa-solid fa-microphone"></i>
+        </div>
+      </div>
+    </div>
+
+    <!-- Agent Intervention Overlay (Fact-Check) -->
+    <div class="agent-overlay">
+      <div class="agent-modal">
+        <div class="agent-icon">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+        </div>
+        <div class="agent-title">Agent Fact-Check</div>
+        <div class="agent-message">
+          요구된 금액($50)은 비정상적입니다.<br><br>
+          해당 공항에서 시내까지의 통상적인 택시 요금은 약 <strong>$20 ~ $25</strong> 입니다. 바가지 요금에 주의하세요.
+        </div>
+        <button class="close-agent-btn" onclick="document.querySelector('.agent-overlay').style.display='none'">확인했습니다</button>
+      </div>
+    </div>
+
+  </div>
+
+</body>
+</html>
