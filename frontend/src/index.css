@@ -113,11 +113,108 @@ body {
   }
 }
 
-.mic-controls {
+.input-controls {
   display: flex;
   justify-content: center;
   align-items: center;
+  gap: 12px;
   margin-top: 20px;
+}
+
+.mode-toggle {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s, background-color 0.2s;
+  flex-shrink: 0;
+}
+
+.mode-toggle:hover {
+  color: var(--text-primary);
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.text-input-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  max-width: 272px;
+}
+
+.text-input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 24px;
+  padding: 12px 18px;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-family: 'Inter', -apple-system, sans-serif;
+  outline: none;
+  transition: border-color 0.2s;
+  min-width: 0;
+}
+
+.text-input::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.6;
+}
+
+.text-input:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.top-input:focus {
+  border-color: rgba(16, 185, 129, 0.5);
+}
+
+.bottom-input:focus {
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.send-button {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: none;
+  color: white;
+  font-size: 1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s, opacity 0.2s;
+  flex-shrink: 0;
+}
+
+.send-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.send-button:not(:disabled):active {
+  transform: scale(0.95);
+}
+
+.top-send {
+  background-color: var(--accent-top);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+}
+
+.bottom-send {
+  background-color: var(--accent-bottom);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
 }
 
 .mic-button {
