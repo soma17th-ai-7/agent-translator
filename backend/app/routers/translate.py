@@ -1,13 +1,9 @@
-import os
 from fastapi import APIRouter, HTTPException
 from app.models import TranslateRequest, TranslateResponse
-from app.services import deepl
 from app.services import upstage
 import httpx
 
 router = APIRouter()
-
-_USE_MOCK = os.environ.get("USE_MOCK", "false").lower() == "true"
 
 
 @router.post("/translate", response_model=TranslateResponse)
