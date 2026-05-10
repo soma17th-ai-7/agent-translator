@@ -48,6 +48,43 @@ const LANG_OPTIONS: { code: Lang; label: string }[] = [
 
 let _id = 0
 
+function LangSelector({
+  lang,
+  show,
+  onToggle,
+  onSelect,
+}: {
+  lang: Lang
+  show: boolean
+  onToggle: () => void
+  onSelect: (l: Lang) => void
+}) {
+  return (
+    <div className="lang-selector-wrap">
+      <button className="lang-selector" onClick={onToggle}>
+        <span>{LANG_CONFIG[lang].label}</span>
+        <i className="fa-solid fa-chevron-down"></i>
+      </button>
+      {show && (
+        <>
+          <div className="picker-overlay" onClick={() => onSelect(lang)} />
+          <div className="lang-dropdown">
+            {LANG_OPTIONS.map(opt => (
+              <button
+                key={opt.code}
+                className={`lang-option ${lang === opt.code ? 'active' : ''}`}
+                onClick={() => onSelect(opt.code)}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function App() {
   const [bottomLang, setBottomLang] = useState<Lang>('KO')
   const topLang: Lang = bottomLang === 'KO' ? 'EN' : 'KO'
@@ -257,41 +294,6 @@ function App() {
 
   const showAgentOverlay = agentVisible && (
     agentStatus === 'searching' || agentResult !== ''
-  )
-
-  const LangSelector = ({
-    lang,
-    show,
-    onToggle,
-    onSelect,
-  }: {
-    lang: Lang
-    show: boolean
-    onToggle: () => void
-    onSelect: (l: Lang) => void
-  }) => (
-    <div className="lang-selector-wrap">
-      <button className="lang-selector" onClick={onToggle}>
-        <span>{LANG_CONFIG[lang].label}</span>
-        <i className="fa-solid fa-chevron-down"></i>
-      </button>
-      {show && (
-        <>
-          <div className="picker-overlay" onClick={() => onSelect(lang)} />
-          <div className="lang-dropdown">
-            {LANG_OPTIONS.map(opt => (
-              <button
-                key={opt.code}
-                className={`lang-option ${lang === opt.code ? 'active' : ''}`}
-                onClick={() => onSelect(opt.code)}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
   )
 
   const showDebugSidebar = debugMode && (agentStatus !== 'idle' || agentReasoning !== '')

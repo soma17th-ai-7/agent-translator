@@ -105,9 +105,8 @@ def _build_agent_messages(
 
 
 def _parse_debug_response(raw: str) -> tuple[str, str]:
-    import re as _re
-    reasoning_match = _re.search(r"REASONING:\s*([\s\S]*?)(?=\nRESULT:)", raw, _re.IGNORECASE)
-    result_match = _re.search(r"RESULT:\s*([\s\S]*)$", raw, _re.IGNORECASE)
+    reasoning_match = re.search(r"REASONING:\s*([\s\S]*?)(?=\nRESULT:)", raw, re.IGNORECASE)
+    result_match = re.search(r"RESULT:\s*([\s\S]*)$", raw, re.IGNORECASE)
     reasoning = _strip_role_tokens(reasoning_match.group(1).strip() if reasoning_match else "")
     result = _strip_role_tokens(result_match.group(1).strip() if result_match else raw)
     return reasoning, result
