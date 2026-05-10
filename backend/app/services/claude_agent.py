@@ -2,37 +2,40 @@ import json
 import os
 from typing import AsyncGenerator, Optional
 
-import anthropic
 import httpx
 
+_UPSTAGE_URL = "https://api.upstage.ai/v1/chat/completions"
+_MODEL = "solar-pro2"
 _LANG_NAME = {"KO": "Korean", "EN": "English"}
-
-_TOOLS = [
-    {
-        "name": "web_search",
-        "description": "Search the web for current and accurate information.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "The search query string.",
-                }
-            },
-            "required": ["query"],
-        },
-    }
-]
 
 
 def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-async def _web_search(query: str) -> str:
+def _headers() -> dict:
+    return {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {os.environ['UPSTAGE_API_KEY']}",
+    }
+
+
+async def _solar(messages: list[dict], max_tokens: int = 256) -> str:
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            _UPSTAGE_URL,
+            headers=_headers(),
+            json={"model": _MODEL, "max_tokens": max_tokens, "messages": messages},
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"].strip()
+
+
+async def _web_search(query: str) -> list[dict]:
     api_key = os.environ.get("TAVILY_API_KEY")
     if not api_key:
-        return "Web search unavailable: TAVILY_API_KEY not set."
+        return []
 
     async with httpx.AsyncClient() as client:
         try:
@@ -47,12 +50,9 @@ async def _web_search(query: str) -> str:
                 timeout=15.0,
             )
             resp.raise_for_status()
-            results = resp.json().get("results", [])
-            return "\n\n".join(
-                f"{r['title']}\n{r['url']}\n{r['content']}" for r in results
-            ) or "No results found."
-        except Exception as e:
-            return f"Search error: {e}"
+            return resp.json().get("results", [])
+        except Exception:
+            return []
 
 
 async def stream_agent_response(
@@ -61,83 +61,84 @@ async def stream_agent_response(
     debug: bool = False,
     user_location: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
-    client = anthropic.AsyncAnthropic()
     lang_name = _LANG_NAME.get(response_lang, response_lang)
+    location_ctx = f"\nUser's current location: {user_location}" if user_location else ""
 
-    location_ctx = (
-        f"\nUser's current location: {user_location}\n"
-        f"Use this as background context when relevant (e.g., local fares, distances, regulations)."
-        if user_location else ""
+    history_text = "\n".join(
+        f"[{_LANG_NAME[e['source_lang']]}] {e['source_text']} → [{_LANG_NAME[e['target_lang']]}] {e['translated_text']}"
+        for e in history
     )
-
-    system_prompt = (
-        f"You are a fact-checking assistant for a real-time translation app.\n"
-        f"You have the full conversation history for context. Focus on the LATEST exchange, "
-        f"using prior context to understand it.\n"
-        f"Analyze the conversation and decide whether any factual claims need verification "
-        f"(prices, distances, business hours, local regulations, etc.)."
-        f"{location_ctx}\n\n"
-        f"- If fact-checking is needed: use web_search, then write a concise note (2-3 sentences). "
-        f"If you reference a source, include its URL in parentheses, e.g. (https://example.com).\n"
-        f"- If no fact-checking is needed (greetings, opinions, simple questions): "
-        f"respond with an empty string.\n\n"
-        f"Always respond in {lang_name}."
+    latest = history[-1]
+    latest_text = (
+        f"[{_LANG_NAME[latest['source_lang']]}] {latest['source_text']}\n"
+        f"[{_LANG_NAME[latest['target_lang']]}] {latest['translated_text']}"
     )
-
-    messages: list = []
-    for i, entry in enumerate(history):
-        is_last = i == len(history) - 1
-        messages.append({
-            "role": "user",
-            "content": (
-                f"[{_LANG_NAME[entry['source_lang']]}] {entry['source_text']}\n"
-                f"[{_LANG_NAME[entry['target_lang']]}] {entry['translated_text']}"
-            ),
-        })
-        if not is_last and entry.get("agent_response") is not None:
-            messages.append({
-                "role": "assistant",
-                "content": entry["agent_response"] or "",
-            })
 
     yield _sse("status", {"state": "analyzing"})
 
     try:
-        while True:
-            response = await client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=512,
-                system=system_prompt,
-                tools=_TOOLS,
-                tool_choice={"type": "auto"},
-                messages=messages,
-            )
+        # Step 1: Solar가 검색 필요 여부 + 쿼리 결정
+        decision_messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a fact-checking assistant for a real-time translation app."
+                    f"{location_ctx}\n"
+                    "Given a conversation, decide if the LATEST exchange contains a verifiable factual claim "
+                    "(prices, distances, business hours, regulations, etc.).\n"
+                    "- If yes: respond with only a concise web search query string.\n"
+                    "- If no: respond with exactly \"SKIP\"."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Conversation history:\n{history_text}\n\nFocus on the latest exchange:\n{latest_text}",
+            },
+        ]
 
-            tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
-            text_blocks = [b for b in response.content if b.type == "text"]
+        decision = await _solar(decision_messages, max_tokens=64)
 
-            if tool_use_blocks:
-                messages.append({"role": "assistant", "content": response.content})
-                tool_results = []
+        if decision.strip().upper() == "SKIP" or not decision.strip():
+            yield _sse("done", {})
+            return
 
-                for block in tool_use_blocks:
-                    if block.name == "web_search":
-                        query = block.input["query"]
-                        yield _sse("status", {"state": "searching", "query": query})
-                        result = await _web_search(query)
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": result,
-                        })
+        # Step 2: Tavily 실검색
+        query = decision.strip()
+        yield _sse("status", {"state": "searching", "query": query})
+        results = await _web_search(query)
 
-                messages.append({"role": "user", "content": tool_results})
+        if not results:
+            yield _sse("done", {})
+            return
 
-            else:
-                final_text = "".join(b.text for b in text_blocks).strip()
-                if final_text:
-                    yield _sse("result", {"text": final_text})
-                break
+        search_context = "\n\n".join(
+            f"{r['title']}\n{r['url']}\n{r['content']}" for r in results
+        )
+
+        # Step 3: Solar가 검색 결과 바탕으로 검증 작성
+        verify_messages = [
+            {
+                "role": "system",
+                "content": (
+                    f"You are a fact-checking assistant. Based on the web search results provided, "
+                    f"write a single concise fact-check note in {lang_name}. "
+                    f"Include the source URL in parentheses at the end, e.g. (https://example.com). "
+                    f"Output only the note, nothing else."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Conversation to fact-check:\n{latest_text}\n\n"
+                    f"Web search results:\n{search_context}"
+                ),
+            },
+        ]
+
+        note = await _solar(verify_messages, max_tokens=200)
+
+        if note:
+            yield _sse("result", {"text": note})
 
     except Exception as e:
         yield _sse("error", {"message": str(e)})

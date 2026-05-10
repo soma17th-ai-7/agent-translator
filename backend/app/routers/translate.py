@@ -16,10 +16,7 @@ async def translate(body: TranslateRequest):
         raise HTTPException(status_code=400, detail="source_lang and target_lang must differ")
 
     try:
-        if _USE_MOCK:
-            translated = await upstage.translate(body.text, body.source_lang, body.target_lang)
-        else:
-            translated = await deepl.translate(body.text, body.source_lang, body.target_lang)
+        translated = await upstage.translate(body.text, body.source_lang, body.target_lang)
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=502, detail=f"Translation API error: {e.response.status_code}")
     except Exception as e:
