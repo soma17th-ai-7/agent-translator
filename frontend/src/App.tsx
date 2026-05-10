@@ -486,12 +486,12 @@ function App() {
               <i className={`fa-solid ${agentResult ? 'fa-circle-info' : 'fa-circle-notch fa-spin'}`}></i>
               <div className="agent-content">
                 {!agentResult && agentStatus === 'searching' && (
-                  <span className="agent-status-text">검색 중: {agentQuery}</span>
+                  <span className="agent-status-text">팩트체크 중...</span>
                 )}
                 {agentResult && (
                   <>
-                    <strong>팩트체크</strong><br />
-                    {renderAgentResult(agentResult)}
+                    <strong>팩트체크</strong>
+                    <div style={{ marginTop: 4 }}>{renderAgentResult(agentResult)}</div>
                   </>
                 )}
               </div>
