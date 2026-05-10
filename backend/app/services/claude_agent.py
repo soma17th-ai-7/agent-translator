@@ -86,7 +86,9 @@ async def stream_agent_response(
                     f"{location_ctx}\n"
                     "Given a conversation, decide if the LATEST exchange contains a verifiable factual claim "
                     "(prices, distances, business hours, regulations, etc.).\n"
-                    "- If yes: respond with only a concise web search query string.\n"
+                    "- If yes: respond with only a specific web search query. "
+                    "Include exact names (stations, places, services) and the type of information needed (fare, route, hours, etc.). "
+                    "Do not add any explanation.\n"
                     "- If no: respond with exactly \"SKIP\"."
                 ),
             },
@@ -120,10 +122,17 @@ async def stream_agent_response(
             {
                 "role": "system",
                 "content": (
-                    f"You are a fact-checking assistant. Based on the web search results provided, "
-                    f"write a single concise fact-check note in {lang_name}. "
-                    f"Include the source URL in parentheses at the end, e.g. (https://example.com). "
-                    f"Output only the note, nothing else."
+                    f"You are a fact-checking assistant. "
+                    f"Your ONLY job is to report what the web search results say. "
+                    f"STRICT RULES:\n"
+                    f"- Use ONLY information explicitly stated in the search results below. "
+                    f"Do NOT add, infer, or assume anything from your own knowledge.\n"
+                    f"- If the search results contradict the conversation, clearly state the correct information.\n"
+                    f"- If the search results do not contain enough information to verify the claim, "
+                    f"respond with exactly \"SKIP\".\n"
+                    f"- Write one concise sentence in {lang_name}. "
+                    f"Include the most relevant source URL in parentheses at the end, e.g. (https://example.com).\n"
+                    f"- Output only the sentence. No extra text."
                 ),
             },
             {
@@ -137,7 +146,7 @@ async def stream_agent_response(
 
         note = await _solar(verify_messages, max_tokens=200)
 
-        if note:
+        if note and not note.strip().upper().startswith("SKIP"):
             yield _sse("result", {"text": note})
 
     except Exception as e:
