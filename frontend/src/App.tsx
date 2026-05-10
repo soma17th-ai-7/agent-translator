@@ -143,7 +143,7 @@ function App() {
   const [showBottomPicker, setShowBottomPicker] = useState(false)
   const [showTopPicker, setShowTopPicker] = useState(false)
   const [agentStatus, setAgentStatus] = useState<AgentStatus>('idle')
-  const [agentQuery, setAgentQuery] = useState('')
+
   const [agentResult, setAgentResult] = useState('')
   const [agentVisible, setAgentVisible] = useState(false)
   const [debugMode, setDebugMode] = useState(false)
@@ -194,7 +194,6 @@ function App() {
     setAgentVisible(false)
     setAgentStatus('idle')
     setAgentResult('')
-    setAgentQuery('')
     setAgentReasoning('')
   }
 
@@ -226,8 +225,8 @@ function App() {
     void streamAgent(history, {
       onAnalyzing: () => { if (live()) setAgentStatus('analyzing') },
 
-      onSearching: (query) => {
-        if (live()) { setAgentStatus('searching'); setAgentQuery(query); setAgentVisible(true) }
+      onSearching: () => {
+        if (live()) { setAgentStatus('searching'); setAgentVisible(true) }
       },
       onResult: (text) => {
         if (live()) {
@@ -272,7 +271,6 @@ function App() {
     setAgentVisible(false)
     setAgentStatus('idle')
     setAgentResult('')
-    setAgentQuery('')
     setAgentReasoning('')
 
     try {
