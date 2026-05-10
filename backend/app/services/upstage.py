@@ -67,10 +67,10 @@ def _build_agent_messages(
             f"using prior context to understand it.\n"
             f"Check for verifiable factual claims (prices, distances, regulations, business hours, etc.)."
             f"{location_ctx}\n\n"
-            f"Respond in this EXACT format (no extra text):\n"
+            f"Respond in this EXACT format with no extra text, no meta-commentary:\n"
             f"REASONING: [팩트체크 여부를 결정한 근거를 1-2문장으로 한국어로 설명]\n"
-            f"RESULT: [Either \"SKIP\" if nothing to fact-check, or a concise 1-2 sentence "
-            f"fact-check note in {_LANG_NAME[response_lang]}, within 120 characters]"
+            f"RESULT: [\"SKIP\" if nothing to fact-check, otherwise a single concise sentence "
+            f"in {_LANG_NAME[response_lang]}]"
         )
     else:
         system_content = (
@@ -79,8 +79,8 @@ def _build_agent_messages(
             f"using prior context to understand it.\n"
             f"Check for verifiable factual claims (prices, distances, regulations, business hours, etc.)."
             f"{location_ctx}\n"
-            f"- If the LATEST exchange contains a claim worth fact-checking: respond with a concise "
-            f"note in {_LANG_NAME[response_lang]}, within 120 characters.\n"
+            f"- If the LATEST exchange contains a claim worth fact-checking: respond with a single "
+            f"concise sentence in {_LANG_NAME[response_lang]}. Output only the sentence, nothing else.\n"
             f"- Otherwise: respond with exactly \"SKIP\" and nothing else."
         )
 
