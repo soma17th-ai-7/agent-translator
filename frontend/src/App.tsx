@@ -48,6 +48,27 @@ const LANG_OPTIONS: { code: Lang; label: string }[] = [
 
 let _id = 0
 
+const URL_RE = /https?:\/\/[^\s)]+/g
+
+function renderWithLinks(text: string) {
+  const parts: React.ReactNode[] = []
+  let last = 0
+  for (const match of text.matchAll(URL_RE)) {
+    const url = match[0]
+    const start = match.index!
+    if (start > last) parts.push(text.slice(last, start))
+    parts.push(
+      <a key={start} href={url} target="_blank" rel="noopener noreferrer"
+        style={{ color: 'inherit', textDecorationLine: 'underline', wordBreak: 'break-all' }}>
+        {url}
+      </a>
+    )
+    last = start + url.length
+  }
+  if (last < text.length) parts.push(text.slice(last))
+  return parts
+}
+
 function LangSelector({
   lang,
   show,
@@ -449,7 +470,7 @@ function App() {
                 {agentResult && (
                   <>
                     <strong>팩트체크</strong><br />
-                    {agentResult}
+                    {renderWithLinks(agentResult)}
                   </>
                 )}
               </div>
