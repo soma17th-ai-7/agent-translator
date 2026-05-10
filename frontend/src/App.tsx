@@ -50,16 +50,19 @@ let _id = 0
 
 // \(? and \)? consume surrounding parens Solar adds around URLs, e.g. (https://...)
 const URL_RE = /\(?(https?:\/\/[^\s)]+)\)?/g
+// Strip literal placeholder text Solar occasionally outputs instead of a real URL
+const PLACEHOLDER_RE = /\s*\((출처|source|출처 없음|URL)\)/gi
 const DISCLAIMER_RE = /변동|달라질|다를 수 있|참고하시|주의하시|확인하시기|문의하시기|따라 다를|차이가 있|may vary|subject to change/
 
 function renderWithLinks(text: string): React.ReactNode[] {
+  const cleaned = text.replace(PLACEHOLDER_RE, '')
   const parts: React.ReactNode[] = []
   let last = 0
   let idx = 0
-  for (const match of text.matchAll(URL_RE)) {
+  for (const match of cleaned.matchAll(URL_RE)) {
     const url = match[1]
     const start = match.index!
-    if (start > last) parts.push(text.slice(last, start))
+    if (start > last) parts.push(cleaned.slice(last, start))
     parts.push(
       <a key={idx++} href={url} target="_blank" rel="noopener noreferrer"
         style={{ fontSize: '0.78em', color: '#6b7280', textDecorationLine: 'underline' }}>
@@ -68,7 +71,7 @@ function renderWithLinks(text: string): React.ReactNode[] {
     )
     last = start + match[0].length
   }
-  if (last < text.length) parts.push(text.slice(last))
+  if (last < cleaned.length) parts.push(cleaned.slice(last))
   return parts
 }
 
