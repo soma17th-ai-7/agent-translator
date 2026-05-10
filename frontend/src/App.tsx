@@ -48,24 +48,25 @@ const LANG_OPTIONS: { code: Lang; label: string }[] = [
 
 let _id = 0
 
-const URL_RE = /https?:\/\/[^\s)]+/g
+// \(? and \)? consume surrounding parens Solar adds around URLs, e.g. (https://...)
+const URL_RE = /\(?(https?:\/\/[^\s)]+)\)?/g
 const DISCLAIMER_RE = /변동|달라질|다를 수 있|참고하시|주의하시|확인하시기|문의하시기|따라 다를|차이가 있|may vary|subject to change/
 
-function renderWithLinks(text: string, dimmed = false): React.ReactNode[] {
+function renderWithLinks(text: string): React.ReactNode[] {
   const parts: React.ReactNode[] = []
   let last = 0
   let idx = 0
   for (const match of text.matchAll(URL_RE)) {
-    const url = match[0]
+    const url = match[1]
     const start = match.index!
     if (start > last) parts.push(text.slice(last, start))
     parts.push(
       <a key={idx++} href={url} target="_blank" rel="noopener noreferrer"
-        style={{ color: dimmed ? '#aaa' : 'inherit', textDecorationLine: 'underline' }}>
+        style={{ fontSize: '0.78em', color: '#6b7280', textDecorationLine: 'underline' }}>
         (출처)
       </a>
     )
-    last = start + url.length
+    last = start + match[0].length
   }
   if (last < text.length) parts.push(text.slice(last))
   return parts
@@ -78,8 +79,8 @@ function renderAgentResult(text: string): React.ReactNode {
       {sentences.map((sentence, i) => {
         const isDisclaimer = DISCLAIMER_RE.test(sentence)
         return isDisclaimer ? (
-          <span key={i} style={{ display: 'block', fontSize: '0.78em', color: '#aaa', marginTop: 3 }}>
-            {renderWithLinks(sentence, true)}
+          <span key={i} style={{ display: 'block', fontSize: '0.78em', color: '#6b7280', marginTop: 3 }}>
+            {renderWithLinks(sentence)}
           </span>
         ) : (
           <span key={i}>{i > 0 && <> </>}{renderWithLinks(sentence)}</span>
