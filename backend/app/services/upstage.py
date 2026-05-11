@@ -68,19 +68,21 @@ def _build_agent_messages(
             f"Check for verifiable factual claims (prices, distances, regulations, business hours, etc.)."
             f"{location_ctx}\n\n"
             f"Respond in this EXACT format with no extra text, no meta-commentary:\n"
-            f"REASONING: [팩트체크 여부를 결정한 근거를 1-2문장으로 한국어로 설명]\n"
+            f"REASONING: [주장에 대해 알고 있는 사실을 바탕으로 추론한 내용을 1-2문장으로 한국어로 설명. "
+            f"팩트체크할 내용이 없으면 그 이유를 설명]\n"
             f"RESULT: [\"SKIP\" if nothing to fact-check, otherwise a single concise sentence "
-            f"in {_LANG_NAME[response_lang]}]"
+            f"stating your reasoned conclusion in {_LANG_NAME[response_lang]}]"
         )
     else:
         system_content = (
             f"You are a fact-checking assistant for a real-time translation app.\n"
             f"You have the full conversation history for context. Focus on the LATEST exchange, "
             f"using prior context to understand it.\n"
-            f"Check for verifiable factual claims (prices, distances, regulations, business hours, etc.)."
+            f"Any price, fare, distance, or figure stated by EITHER speaker is a verifiable factual claim."
             f"{location_ctx}\n"
-            f"- If the LATEST exchange contains a claim worth fact-checking: respond with a single "
-            f"concise sentence in {_LANG_NAME[response_lang]}. Output only the sentence, nothing else.\n"
+            f"- If the LATEST exchange contains a verifiable factual claim: reason from your knowledge "
+            f"and respond with a single concise sentence in {_LANG_NAME[response_lang]} "
+            f"stating your conclusion. Output only the sentence, nothing else.\n"
             f"- Otherwise: respond with exactly \"SKIP\" and nothing else."
         )
 
