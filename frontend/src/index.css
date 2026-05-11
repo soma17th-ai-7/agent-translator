@@ -202,6 +202,42 @@ body {
   white-space: pre-wrap;
 }
 
+.debug-query {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: #93c5fd;
+  line-height: 1.5;
+  padding: 4px 0;
+}
+
+.debug-query i {
+  margin-top: 2px;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+}
+
+.debug-search-result {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  padding: 4px 0;
+}
+
+.debug-search-result.has-result {
+  color: #10b981;
+}
+
+.debug-search-result.warn {
+  color: #f59e0b;
+}
+
+.debug-search-result.no-result {
+  color: #f87171;
+}
+
 .debug-decision {
   font-size: 0.75rem;
   font-weight: 600;

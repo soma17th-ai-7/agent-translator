@@ -7,6 +7,7 @@ export interface AgentCallbacks {
   onDone: () => void
   onError: (message: string) => void
   onReasoning?: (text: string) => void
+  onVerify?: (text: string) => void
 }
 
 export interface AgentOptions {
@@ -108,6 +109,9 @@ export async function streamAgent(
           break
         case 'reasoning':
           callbacks.onReasoning?.((data.text as string) ?? '')
+          break
+        case 'verify':
+          callbacks.onVerify?.((data.text as string) ?? '')
           break
         case 'done':
           callbacks.onDone()

@@ -50,12 +50,13 @@ let _id = 0
 
 // \(? and \)? consume surrounding parens Solar adds around URLs, e.g. (https://...)
 const URL_RE = /\(?(https?:\/\/[^\s)]+)\)?/g
-// Strip literal placeholder text Solar occasionally outputs instead of a real URL
+// Strip literal placeholder text Solar occasionally outputs instead of a real URL or content
 const PLACEHOLDER_RE = /\s*\((출처|source|출처 없음|URL)\)/gi
+const TEMPLATE_RE = /\[conclusion sentence\]|\[your sentence\]|\[sentence\]/gi
 const DISCLAIMER_RE = /변동|달라질|다를 수 있|참고하시|주의하시|확인하시기|문의하시기|따라 다를|차이가 있|may vary|subject to change/
 
 function renderWithLinks(text: string): React.ReactNode[] {
-  const cleaned = text.replace(PLACEHOLDER_RE, '')
+  const cleaned = text.replace(PLACEHOLDER_RE, '').replace(TEMPLATE_RE, '').trim()
   const parts: React.ReactNode[] = []
   let last = 0
   let idx = 0
@@ -151,6 +152,8 @@ function App() {
   const [agentVisible, setAgentVisible] = useState(false)
   const [debugMode, setDebugMode] = useState(false)
   const [agentReasoning, setAgentReasoning] = useState('')
+  const [agentSearchQuery, setAgentSearchQuery] = useState('')
+  const [agentVerifyNote, setAgentVerifyNote] = useState('')
   const [userLocation, setUserLocation] = useState<string | null>(null)
   const [locationStatus, setLocationStatus] = useState<'idle' | 'loading' | 'ready' | 'denied'>('idle')
 
@@ -198,6 +201,8 @@ function App() {
     setAgentStatus('idle')
     setAgentResult('')
     setAgentReasoning('')
+    setAgentSearchQuery('')
+    setAgentVerifyNote('')
   }
 
   const swapLanguages = () => {
@@ -228,8 +233,12 @@ function App() {
     void streamAgent(history, {
       onAnalyzing: () => { if (live()) setAgentStatus('analyzing') },
 
-      onSearching: () => {
-        if (live()) { setAgentStatus('searching'); setAgentVisible(true) }
+      onSearching: (query) => {
+        if (live()) {
+          setAgentStatus('searching')
+          setAgentVisible(true)
+          if (query) setAgentSearchQuery(query)
+        }
       },
       onResult: (text) => {
         if (live()) {
@@ -255,6 +264,7 @@ function App() {
         }
       },
       onReasoning: (text) => { if (live()) setAgentReasoning(text) },
+      onVerify: (text) => { if (live()) setAgentVerifyNote(text) },
     }, options).catch(err => {
       if (live()) {
         console.error('Agent stream error:', err)
@@ -275,6 +285,8 @@ function App() {
     setAgentStatus('idle')
     setAgentResult('')
     setAgentReasoning('')
+    setAgentSearchQuery('')
+    setAgentVerifyNote('')
 
     try {
       const translation = await translate(text, sourceLang, targetLang)
@@ -547,22 +559,41 @@ function App() {
         <div className="debug-header">
           <i className="fa-solid fa-bug"></i> 에이전트 추론
         </div>
-        {agentStatus === 'analyzing' && !agentReasoning && (
+        {agentStatus === 'analyzing' && !agentSearchQuery && (
           <div className="debug-thinking">
-            <i className="fa-solid fa-circle-notch fa-spin"></i> 추론 중...
+            <i className="fa-solid fa-circle-notch fa-spin"></i> 분석 중...
+          </div>
+        )}
+        {agentSearchQuery && (
+          <div className="debug-query">
+            <i className="fa-solid fa-magnifying-glass"></i>
+            <span>{agentSearchQuery}</span>
           </div>
         )}
         {agentReasoning && (
-          <>
-            <div className="debug-content">{agentReasoning}</div>
-            <div className={`debug-decision ${agentResult ? 'checked' : 'skipped'}`}>
-              {agentStatus !== 'done'
-                ? '— 분석 중 —'
-                : agentResult
-                  ? '✓ 팩트체크 수행'
-                  : '✗ 팩트체크 불필요'}
+          <div className={`debug-search-result ${agentReasoning.startsWith('결과') ? 'has-result' : 'no-result'}`}>
+            <i className={`fa-solid ${agentReasoning.startsWith('결과') ? 'fa-circle-check' : 'fa-circle-xmark'}`}></i>
+            <span>{agentReasoning}</span>
+          </div>
+        )}
+        {agentVerifyNote && (() => {
+          const ok = agentVerifyNote.includes('완료')
+          const retrying = agentVerifyNote.includes('재시도')
+          return (
+            <div className={`debug-search-result ${ok ? 'has-result' : retrying ? 'warn' : 'no-result'}`}>
+              <i className={`fa-solid ${ok ? 'fa-circle-check' : retrying ? 'fa-rotate' : 'fa-triangle-exclamation'}`}></i>
+              <span>{agentVerifyNote}</span>
             </div>
-          </>
+          )
+        })()}
+        {(agentSearchQuery || agentReasoning) && (
+          <div className={`debug-decision ${agentResult ? 'checked' : 'skipped'}`}>
+            {agentStatus !== 'done'
+              ? '— 검색 중 —'
+              : agentResult
+                ? '✓ 팩트체크 수행'
+                : '✗ 팩트체크 불필요'}
+          </div>
         )}
       </div>
     )}
