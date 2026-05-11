@@ -65,16 +65,15 @@ npm run dev
 
 ```env
 # ── 모드 선택 ────────────────────────────────────────────
-# true  → Upstage API로 번역 + 팩트체크 (개발/데모, API 키 1개)
-# false → DeepL(번역) + Claude + Tavily(팩트체크) (프로덕션)
+# true  → Upstage Solar 단독 번역 + 팩트체크 (개발/데모)
+# false → Upstage Solar 번역 + Tavily 웹 검색 팩트체크 (프로덕션)
 USE_MOCK=true
 
-# ── Mock 모드 (USE_MOCK=true) ─────────────────────────────
+# ── 항상 필요 ─────────────────────────────────────────────
 UPSTAGE_API_KEY=your_upstage_api_key_here
 
 # ── 프로덕션 모드 (USE_MOCK=false) ───────────────────────
-DEEPL_API_KEY=your_deepl_api_key_here
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
+# 미설정 시 자체 지식 fallback으로 동작 (검색 비활성화)
 TAVILY_API_KEY=your_tavily_api_key_here
 ```
 
@@ -94,17 +93,15 @@ VITE_API_URL=http://localhost:8000
 
 | | Mock 모드 | 프로덕션 모드 |
 |---|---|---|
-| 번역 | Upstage solar-pro2 | DeepL |
-| 팩트체크 | Upstage solar-pro2 | Claude API + Tavily 웹 검색 |
-| 필요한 API 키 | `UPSTAGE_API_KEY` | `DEEPL_API_KEY` + `ANTHROPIC_API_KEY` + `TAVILY_API_KEY` |
+| 번역 | Upstage solar-pro2 | Upstage solar-pro2 |
+| 팩트체크 | Upstage solar-pro2 단일 호출 | Upstage solar-pro2 + Tavily 웹 검색 |
+| 필요한 API 키 | `UPSTAGE_API_KEY` | `UPSTAGE_API_KEY` + `TAVILY_API_KEY` |
 
 ### API 키 발급
 
 | 서비스 | 발급 주소 | 무료 티어 |
 |--------|-----------|-----------|
 | Upstage | https://console.upstage.ai | 있음 |
-| DeepL | https://www.deepl.com/pro-api | 있음 (500,000자/월) |
-| Anthropic | https://console.anthropic.com | 없음 (사용량 과금) |
 | Tavily | https://tavily.com | 있음 |
 
 ### 모드 전환 방법
@@ -148,7 +145,7 @@ uvicorn app.main:app --reload
 ├── backend/           # Python + FastAPI
 │   └── app/
 │       ├── routers/   # translate, agent 엔드포인트
-│       └── services/  # upstage, deepl, claude_agent
+│       └── services/  # upstage, solar_agent
 │
 └── docs/              # 설계 문서
     ├── architecture.md    # 기술 스택 및 아키텍처

@@ -32,10 +32,9 @@
 
 | 구분 | 서비스 | 용도 |
 |------|--------|------|
-| Mock 모드 | Upstage API (solar-pro2) | 번역 + 팩트체크 |
-| 프로덕션 — 번역 | DeepL API | 고품질 번역 |
-| 프로덕션 — 에이전트 | Anthropic Claude API | 팩트체크 판단 |
-| 프로덕션 — 검색 | Tavily API | 에이전트 웹 검색 |
+| 번역 | Upstage API (solar-pro2) | 항상 사용 |
+| Mock 에이전트 | Upstage API (solar-pro2) | 단일 LLM 호출 팩트체크 (`USE_MOCK=true`) |
+| 프로덕션 에이전트 | Upstage API (solar-pro2) + Tavily API | 웹 검색 기반 팩트체크 (`USE_MOCK=false`) |
 | 위치 | Nominatim (OpenStreetMap) | 역지오코딩 (무료) |
 
 ---
@@ -67,12 +66,12 @@
 │                                                             │
 │  routers/translate.py        routers/agent.py              │
 │         │                           │                       │
-│         │ USE_MOCK?                 │ USE_MOCK?             │
-│    ┌────┴─────┐             ┌───────┴────────┐             │
-│    ▼          ▼             ▼                ▼             │
-│  upstage   deepl        upstage        claude_agent        │
-│ .translate .translate  .stream_agent  .stream_agent        │
-│                         (solar-pro2)  (Claude + Tavily)    │
+│         │ (항상)                     │ USE_MOCK?             │
+│         ▼                    ┌──────┴────────┐             │
+│      upstage                 ▼               ▼             │
+│     .translate           upstage        solar_agent        │
+│   (solar-pro2)          .stream_agent  .stream_agent       │
+│                          (단일 호출)    (response+Tavily)   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -97,10 +96,9 @@
     │   │   ├── translate.py # POST /api/translate
     │   │   └── agent.py     # POST /api/agent/stream
     │   └── services/
-    │       ├── upstage.py   # Mock: Upstage 번역 + 팩트체크
-    │       ├── deepl.py     # 프로덕션: DeepL 번역
-    │       └── claude_agent.py  # 프로덕션: Claude + Tavily 팩트체크
-    └── .env                 # USE_MOCK, UPSTAGE_API_KEY, DEEPL_API_KEY, ...
+    │       ├── upstage.py       # 번역 + Mock 에이전트 (Upstage solar-pro2)
+    │       └── solar_agent.py   # 프로덕션 에이전트 (Upstage + Tavily)
+    └── .env                 # USE_MOCK, UPSTAGE_API_KEY, TAVILY_API_KEY
 ```
 
 ---
@@ -126,13 +124,35 @@
 
 API 키 보안과 프로덕션 품질을 이유로 백엔드가 모든 외부 API를 중개한다. 프론트엔드는 항상 자체 백엔드만 호출한다.
 
-`USE_MOCK=true`일 때 Upstage solar-pro2가 번역과 팩트체크를 모두 처리한다. 개발·데모 환경에서는 Upstage API 키 하나만으로 전체 기능을 검증할 수 있다.
+번역은 `USE_MOCK` 값과 무관하게 항상 Upstage solar-pro2를 사용한다.
+에이전트는 `USE_MOCK` 값에 따라 달라진다.
 
 | | Mock | 프로덕션 |
 |---|---|---|
-| 번역 | Upstage solar-pro2 | DeepL |
-| 에이전트 | Upstage solar-pro2 | Claude + Tavily |
-| API 키 | `UPSTAGE_API_KEY` | `DEEPL_API_KEY`, `ANTHROPIC_API_KEY`, `TAVILY_API_KEY` |
+| 번역 | Upstage solar-pro2 | Upstage solar-pro2 |
+| 에이전트 | Upstage solar-pro2 (단일 호출) | Upstage solar-pro2 + Tavily 웹 검색 |
+| API 키 | `UPSTAGE_API_KEY` | `UPSTAGE_API_KEY`, `TAVILY_API_KEY` |
+
+### 프로덕션 에이전트 파이프라인 (`solar_agent.py`)
+
+`USE_MOCK=false` 시 동작하는 4단계 파이프라인:
+
+```
+1. 주장 파악 (decision)
+   최신 교환에서 검증할 사실적 주장을 짧은 구절로 요약
+   (이전 맥락은 배경으로 참고, 최신 교환만 평가 대상)
+
+2. 쿼리 계획 (_plan_queries)
+   주장 검증에 필요한 단서 유형을 파악하고
+   타겟 검색 쿼리 1-2개 생성
+
+3. Tavily 검색
+   쿼리별 병렬 검색, 중복 URL 제거 후 결과 합산
+
+4. 추론·검증 (verify)
+   검색 결과를 단서로 삼아 자체 지식 보완 후 결론 도출
+   → Fallback: 검색 실패/불충분 시 자체 지식만으로 재시도
+```
 
 ### 에이전트 히스토리 기반 컨텍스트 + KV 캐시
 
@@ -170,7 +190,7 @@ API 키 보안과 프로덕션 품질을 이유로 백엔드가 모든 외부 AP
    ├── translate(text, sourceLang, targetLang)
    │       │
    │   POST /api/translate
-   │       │ backend routes: USE_MOCK → upstage.translate / deepl.translate
+   │       │ backend: upstage.translate (항상 Upstage solar-pro2)
    │       │
    │   translated text 반환
    │       │
@@ -181,12 +201,14 @@ API 키 보안과 프로덕션 품질을 이유로 백엔드가 모든 외부 AP
    └── runAgentStream(agentHistory, { responseLang, debug, userLocation })
            │
        POST /api/agent/stream  { history[], response_lang, debug, user_location }
-           │ backend routes: USE_MOCK → upstage.stream_agent / claude_agent
+           │ USE_MOCK=true  → upstage.stream_agent (단일 LLM 호출)
+           │ USE_MOCK=false → solar_agent.stream_agent_response (4단계 파이프라인)
            │
        SSE stream:
          event: status (analyzing)  → agentStatus = 'analyzing'
-         event: reasoning           → agentReasoning 업데이트 (debug only)
          event: status (searching)  → agentStatus = 'searching', 오버레이 표시
+         event: reasoning           → agentReasoning 업데이트 (debug only)
+         event: verify              → agentVerifyNote 업데이트 (debug only)
          event: result              → agentResult 업데이트
          event: done                → agentStatus = 'done'
            │
@@ -202,12 +224,11 @@ API 키 보안과 프로덕션 품질을 이유로 백엔드가 모든 외부 AP
 ### 백엔드 (`backend/.env`)
 
 ```env
-USE_MOCK=true                   # true: Upstage / false: DeepL + Claude
+USE_MOCK=true              # true: Upstage 단독 / false: Upstage + Tavily 웹 검색
 
-UPSTAGE_API_KEY=...             # Mock 모드 필수
-DEEPL_API_KEY=...               # 프로덕션 필수
-ANTHROPIC_API_KEY=...           # 프로덕션 필수
-TAVILY_API_KEY=...              # 프로덕션 필수
+UPSTAGE_API_KEY=...        # 항상 필요 (번역 + 에이전트)
+TAVILY_API_KEY=...         # USE_MOCK=false 시 웹 검색에 사용
+                           # 미설정 시 자체 지식 fallback으로 동작
 ```
 
 ### 프론트엔드 (`frontend/.env`)

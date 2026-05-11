@@ -75,9 +75,12 @@ cp .env.example .env
 `.env` 파일을 열고 사용할 모드에 맞게 API 키를 입력한다.
 
 ```env
-# 개발 환경: Mock 모드 권장 (API 키 1개로 전체 동작)
+# 개발 환경: Mock 모드 권장 (UPSTAGE_API_KEY 하나로 전체 동작)
 USE_MOCK=true
 UPSTAGE_API_KEY=up-xxxxxxxxxxxxxxxxxxxxxxxx
+
+# 프로덕션 모드 (USE_MOCK=false): Tavily 웹 검색 활성화
+# TAVILY_API_KEY=tvly-xxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 > **주의**: `.env` 파일은 Git에 커밋하지 않는다 (`.gitignore`에 포함됨).

@@ -8,10 +8,7 @@ Base URL: `http://localhost:8000`
 
 ### `POST /api/translate`
 
-텍스트를 번역한다. 백엔드의 `USE_MOCK` 설정에 따라 번역 엔진이 결정된다.
-
-- `USE_MOCK=true`: Upstage API (solar-pro2)
-- `USE_MOCK=false`: DeepL API
+텍스트를 번역한다. Upstage solar-pro2를 사용하며 `USE_MOCK` 설정과 무관하게 동작한다.
 
 **Request**
 
@@ -58,8 +55,8 @@ Base URL: `http://localhost:8000`
 누적 대화 히스토리를 분석해 팩트체크 정보를 SSE로 스트리밍한다.
 백엔드의 `USE_MOCK` 설정에 따라 에이전트 엔진이 결정된다.
 
-- `USE_MOCK=true`: Upstage API (solar-pro2)
-- `USE_MOCK=false`: Claude API + Tavily 웹 검색
+- `USE_MOCK=true`: Upstage solar-pro2 단일 호출 (웹 검색 없음)
+- `USE_MOCK=false`: 4단계 파이프라인 — 주장 파악 → 쿼리 계획 → Tavily 웹 검색 → 추론·검증
 
 **Request**
 
@@ -108,7 +105,7 @@ event: status
 data: {"state": "analyzing"}
 
 event: status
-data: {"state": "searching", "query": "fact-checking"}
+data: {"state": "searching", "query": "서울역 수서역 택시 요금"}
 
 event: result
 data: {"text": "서울역-수서역 택시 요금은 통상 1만~1.5만원 수준입니다."}
@@ -127,17 +124,20 @@ event: done
 data: {}
 ```
 
-**디버그 모드 (`debug: true`) 시** — `reasoning` 이벤트 추가
+**디버그 모드 (`debug: true`) 시** — `reasoning`, `verify` 이벤트 추가
 
 ```
 event: status
 data: {"state": "analyzing"}
 
-event: reasoning
-data: {"text": "서울역에서 수서역까지의 택시 요금이 언급되었으므로 실제 요금을 확인할 필요가 있다."}
-
 event: status
-data: {"state": "searching", "query": "fact-checking"}
+data: {"state": "searching", "query": "서울역 수서역 택시 요금 / 서울역 수서역 거리"}
+
+event: reasoning
+data: {"text": "결과 5개 수집"}
+
+event: verify
+data: {"text": "팩트체크 완료 (검색 기반)"}
 
 event: result
 data: {"text": "서울역-수서역 택시 요금은 통상 1만~1.5만원 수준입니다."}
@@ -151,9 +151,10 @@ data: {}
 | 이벤트 | data 형태 | 설명 |
 |--------|-----------|------|
 | `status` | `{"state": "analyzing"}` | 에이전트 분석 시작 |
-| `status` | `{"state": "searching", "query": string}` | 팩트체크 수행 중 |
-| `result` | `{"text": string}` | 팩트체크 결과 (120자 이내) |
-| `reasoning` | `{"text": string}` | 팩트체크 결정 근거 (디버그 모드 전용, 한국어) |
+| `status` | `{"state": "searching", "query": string}` | 팩트체크 검색 수행 중 (`query`는 실제 검색어) |
+| `result` | `{"text": string}` | 팩트체크 결과 |
+| `reasoning` | `{"text": string}` | 검색 결과 수집 현황 (디버그 모드 전용) |
+| `verify` | `{"text": string}` | 검증 단계 진행 상황 (디버그 모드 전용) |
 | `done` | `{}` | 스트림 종료 |
 | `error` | `{"message": string}` | 에러 발생 후 스트림 종료 |
 

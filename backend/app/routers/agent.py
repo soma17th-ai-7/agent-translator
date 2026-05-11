@@ -2,7 +2,7 @@ import os
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from app.models import AgentStreamRequest
-from app.services.claude_agent import stream_agent_response
+from app.services.solar_agent import stream_agent_response
 from app.services import upstage
 
 router = APIRouter()
